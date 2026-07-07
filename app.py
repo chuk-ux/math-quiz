@@ -10,10 +10,12 @@ st.title("📊 中學數學測驗紀錄與分析系統")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "math_quiz.db")
 
-# 初始化資料庫（建立學生答案表）
+# 初始化資料庫（建立學生答案表與試卷結構表）
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    
+    # 1. 確保學生答案表存在
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS student_results (
             student_name TEXT,
@@ -24,9 +26,21 @@ def init_db():
             is_correct INTEGER
         )
     ''')
+    
+    # 2. 確保試卷結構表存在（防止雲端空白環境因 pandas 讀取不到而報錯）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS quiz_structure (
+            quiz_id TEXT,
+            question_file TEXT,
+            topic TEXT,
+            q_type TEXT
+        )
+    ''')
+    
     conn.commit()
     conn.close()
 
+# 執行初始化
 init_db()
 
 # 取得目前系統內所有的測驗卷清單
@@ -178,7 +192,7 @@ elif mode == "📈 老師數據分析":
         with st.expander("📂 檢視完整數據明細"):
             st.dataframe(filtered_data)
 
-        # === 🚨 管理員：清除數據專區 (包含在此完整代碼中) ===
+        # === 🚨 管理員：清除數據專區 ===
         st.markdown("---")
         with st.expander("⚠️ 系統管理員：清除數據專區 (請謹慎操作)"):
             st.warning("注意：數據刪除後將無法復原！")
