@@ -126,24 +126,39 @@ elif mode == "📈 老師數據分析":
         students = ["全體學生"] + all_data['student_name'].unique().tolist()
         selected_student = st.selectbox("🔍 選擇分析對象:", students)
         
-        st.markdown(f"### 📍 【{selected_student}】 核心課題掌握度分析")
+        st.markdown(f"### 📍 【{selected_student}】 核心課題雷達分析")
         
-        # 3. 根據選取對象，計算個人表現並與整體對比
+        # 3. 根據選取對象繪製圖表
         if selected_student == "全體學生":
-            # 如果選全體學生，就只顯示全體平均長條圖
-            fig_topic = px.bar(
-                global_topic, x='topic', y='全體平均(%)', text='全體平均(%)', 
-                labels={'topic': '數學課題', '全體平均(%)': '掌握度(%)'}, 
-                color='全體平均(%)', color_continuous_scale='RdYlGn'
-            )
-            fig_topic.update_yaxes(range=[0, 100])
-            st.plotly_chart(fig_topic, use_container_width=True)
+            # 如果是全體學生，畫單一雷達圖
+            categories = global_topic['topic'].tolist()
+            # 雷達圖需要將最後一個點連回第一個點，所以要把第一個資料複製一份補在最後面
+            r_global = global_topic['全體平均(%)'].tolist()
             
-            # 設定後續分析用的資料集
+            if len(categories) > 0:
+                categories_loop = categories + [categories[0]]
+                r_global_loop = r_global + [r_global[0]]
+                
+                fig_radar = go.Figure()
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=r_global_loop,
+                    theta=categories_loop,
+                    fill='toself',
+                    name='全體平均水準',
+                    line_color='#ff7f0e'
+                ))
+                fig_radar.update_layout(
+                    polar=dict(radialaxis=dict(visible=True, range=[0, 100])),
+                    showlegend=True,
+                    height=500
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
+            
             filtered_data = all_data
             topic_summary = global_topic.rename(columns={'全體平均(%)': '答對率(%)'})
+            
         else:
-            # 如果選特定學生，做雙長條圖對比 (個人 vs 全體)
+            # 如果選特定學生，做「雙色雷達網重疊對比」（個人 vs 全體）
             student_data = all_data[all_data['student_name'] == selected_student]
             
             student_topic = student_data.groupby('topic').agg(
@@ -153,54 +168,74 @@ elif mode == "📈 老師數據分析":
             student_topic['個人表現(%)'] = (student_topic['個人答對題數'] / student_topic['個人總題數'] * 100).round(1)
             
             # 合併個人與全體數據
-            comparison_df = pd.merge(student_topic, global_topic[['topic', '全體平均(%)']], on='topic', how='right')
+            comparison_df = pd.merge(global_topic[['topic', '全體平均(%)']], student_topic[['topic', '個人表現(%)']], on='topic', how='left')
             comparison_df['個人表現(%)'] = comparison_df['個人表現(%)'].fillna(0) # 若該生沒做過該課題，填0
             
-            # 使用 Graph Objects 繪製精美的雙長條圖對比
-            fig_compare = go.Figure()
-            fig_compare.add_trace(go.Bar(
-                x=comparison_df['topic'], y=comparison_df['個人表現(%)'],
-                name=f'{selected_student} 的表現', marker_color='#1f77b4', text=comparison_df['個人表現(%)'], textposition='auto'
-            ))
-            fig_compare.add_trace(go.Bar(
-                x=comparison_df['topic'], y=comparison_df['全體平均(%)'],
-                name='全體平均水準', marker_color='#ff7f0e', text=comparison_df['全體平均(%)'], textposition='auto',
-                opacity=0.7
-            ))
+            categories = comparison_df['topic'].tolist()
             
-            fig_compare.update_layout(
-                barmode='group', xaxis_title='數學課題', yaxis_title='答對率 (%)',
-                yaxis=dict(range=[0, 100]), legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-            )
-            st.plotly_chart(fig_compare, use_container_width=True)
+            if len(categories) > 0:
+                # 頭尾相連閉合迴圈
+                categories_loop = categories + [categories[0]]
+                r_student_loop = comparison_df['個人表現(%)'].tolist() + [comparison_df['個人表現(%)'].tolist()[0]]
+                r_global_loop = comparison_df['全體平均(%)'].tolist() + [comparison_df['全體平均(%)'].tolist()[0]]
+                
+                # 建立雙色重疊雷達圖
+                fig_radar = go.Figure()
+                
+                # 1. 填入全體平均（放底層，設定半透明）
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=r_global_loop,
+                    theta=categories_loop,
+                    fill='toself',
+                    name='全體平均水準',
+                    fillcolor='rgba(255, 127, 14, 0.3)', # 橘色半透明
+                    line=dict(color='#ff7f0e', width=2)
+                ))
+                
+                # 2. 填入個人表現（放頂層）
+                fig_radar.add_trace(go.Scatterpolar(
+                    r=r_student_loop,
+                    theta=categories_loop,
+                    fill='toself',
+                    name=f'{selected_student} 的表現',
+                    fillcolor='rgba(31, 119, 180, 0.5)', # 藍色半透明
+                    line=dict(color='#1f77b4', width=3)
+                ))
+                
+                fig_radar.update_layout(
+                    polar=dict(
+                        radialaxis=dict(visible=True, range=[0, 100], ticksuffix="%"),
+                        angularaxis=dict(direction="clockwise") # 順時針排列
+                    ),
+                    showlegend=True,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.05, xanchor="center", x=0.5),
+                    height=550
+                )
+                st.plotly_chart(fig_radar, use_container_width=True)
             
-            # 設定後續分析用的資料集
             filtered_data = student_data
             topic_summary = student_topic.rename(columns={'個人表現(%)': '答對率(%)'})
 
         # ==================== 🧩 另開分頁/下拉選單：細項類型表現 ====================
         st.markdown("---")
         st.subheader("🔍 課題目錄：點開檢視「題型細項」微觀分析")
-        st.write("目前主圖表僅呈現巨觀課題。若需要針對某一弱點單元進行微觀診斷，請在下方選擇該課題：")
+        st.write("目前上方主雷達圖僅呈現巨觀課題。若需要針對某一弱點單元進行微觀診斷，請在下方選擇該課題：")
         
-        # 讓老師下拉選擇想看哪一個課題的詳細題型
         available_topics = filtered_data['topic'].unique().tolist()
         selected_detail_topic = st.selectbox("請選擇欲深入剖析的數學課題:", ["-- 請選擇課題 --"] + available_topics)
         
-        if selected_detail_topic != "-- 請选择課題 --":
+        if selected_detail_topic != "-- 請選擇課題 --":
             st.markdown(f"#### 📝 課題【{selected_detail_topic}】下的各題型答對率明細")
             
-            # 過濾出該課題的數據
             detail_data = filtered_data[filtered_data['topic'] == selected_detail_topic]
             
-            # 計算該課題下各題型(Type)的表現
             type_analysis = detail_data.groupby('q_type').agg(
                 總題數=('is_correct', 'count'),
                 答對題數=('is_correct', 'sum')
             ).reset_index()
             type_analysis['答對率(%)'] = (type_analysis['答對題數'] / type_analysis['總題數'] * 100).round(1)
             
-            # 建立細項圖表
+            # 題型細項部分依然使用乾淨的單色橫向或縱向長條圖呈現，方便查看具體卡關細節
             fig_type = px.bar(
                 type_analysis, x='q_type', y='答對率(%)', text='答對率(%)', 
                 labels={'q_type': '題目類型', '答對率(%)': '答對率(%)'},
@@ -216,9 +251,9 @@ elif mode == "📈 老師數據分析":
         weak_topics = topic_summary[topic_summary['答對率(%)'] < 60]['topic'].tolist()
         recommendations = []
         if weak_topics:
-            recommendations.append(f"❌ **需要補強的課題**：目前在 **{', '.join(weak_topics)}** 的掌握度未達 60%。建議在下次出卷時，透過精細查看下方題型，找出是計算還是應用題卡關，並針對性補強。")
+            recommendations.append(f"❌ **需要補強的課題**：目前在 **{', '.join(weak_topics)}** 的掌握度未達 60%（雷達圖出現明顯向內凹陷）。建議點開下方題型，找出是計算還是應用題卡關。")
         else:
-            recommendations.append("✅ **整體表現優異**：核心課題掌握度良好，水平穩定，可以開始嘗試加入跨單元的綜合進階挑戰題！")
+            recommendations.append("✅ **整體表現優異**：雷達圖形飽滿，核心課題掌握度良好，可以開始嘗試加入跨單元的綜合進階挑戰題！")
             
         for rec in recommendations:
             st.info(rec)
